@@ -1,0 +1,84 @@
+1) Denoising
+
+dwi_input_image = cell2mat(fullfile(output_main_folder,subject_folders(i),'DWI.nii.gz'));
+dwi_output_image_name = cell2mat(fullfile(output_main_folder,subject_folders(i),'denoised_DWI.nii.gz'));
+noise_image = cell2mat(fullfile(output_main_folder,subject_folders(i),'dMRI_noise.nii.gz'));
+cmd_to_execute = sprintf('dwidenoise %s %s -noise %s -nthreads 96 -quiet -force',dwi_input_image,dwi_output_image_name,noise_image);
+system(cmd_to_execute);
+
+2) Susceptibility, Motion, and Eddy current correction
+
+%% Run topup with opposite polarity data 
+
+acqparams_path_file = fullfile(main_folder,'acqparams.txt');
+cmd_to_execute = sprintf('topup --imain=PA_AP --datain=%s --config=b02b0.cnf --out=topup_results --iout=corr_b0 --fout=fieldmap --nthr=96',acqparams_path_file)
+[status,output] = call_fsl(cmd_to_execute); 
+%% PA_AP suggests b0 acquired in PA>>AP is the first volume and AP>>PA is the second volume
+
+%% if you dont have opposite polarity data, do the below steps:
+
+Downlaod Docker container from: https://hub.docker.com/repository/docker/leonyichencai/synb0-disco
+
+sudo docker run --rm -v your_data_directory/INPUTS/:/INPUTS/ -v your_output_directory/OUTPUTS:/OUTPUTS/ -v your_freesurfer_license_path/license.txt:/extra/freesurfer/license.txt --user $(id -u):$(id -g) leonyichencai/synb0-disco:v3.0
+
+
+INPUTS DIRECTORY WITHIN YOUR_DATA_DIRECTORY
+--b0.nii.gz
+--T1.nii.gz
+--acqparams.txt 
+	0 1 0 0.1 Tells DISCO that PA is the first volume
+	0 1 0 0   Tells DISCO that T1 is the second volume
+     0.1 in the last column means the echo dwell time" multiplied by "number of PE steps - 1" and it is also the reciprocal of the PE bandwidth/pixel; Echo Spacing * EPI Factor - 1
+
+
+3)Eddy/Susceptibility correction
+
+dwi_input = scan_name_PA_nifti;
+index_path_file = fullfile(main_folder,'index.txt');
+bvals_path_file = bvals_name;
+bvecs_path_file = bvecs_name;
+
+cuda_path='/opt/fsl/bin/eddy_cuda10.2';
+mask_file='mean_corr_b0_brain_mask';
+topup_name='topup_results'; # Or change to your_output_directory/OUTPUTS/topup if you ran DISCO
+output_name='eddy_corrected_DWI';
+
+cmd_to_execute = sprintf('%s --imain=%s --mask=%s --acqp=%s --index=%s --bvals=%s --bvecs=%s --topup=%s --cnr_maps --residuals --estimate_move_by_susceptibility --mb=3 --mb_offs=1 --repol --out=%s -v',...
+    cuda_path,dwi_input,mask_file,acqparams_path_file,index_path_file,bvals_path_file,bvecs_path_file,topup_name,output_name)
+
+fid=fopen('eddy_command.txt','w');
+fprintf(fid,'%s',cmd_to_execute); fclose all;
+system('sh eddy_command.txt');
+
+4)Single tensor fitting
+
+input_dwi = 'b1000_eddy_corrected_DWI.nii.gz';
+output_tensor_name = fullfile(output_folder,'DTIFIT');
+bvals_name = fullfile(output_folder,'bvals'); %% Only with b<=1250
+bvecs_name = fullfile(output_folder,'bvecs');
+brain_mask = fullfile(output_folder,'brain_mask');
+
+cmd_to_execute=sprintf('dtifit -k %s -o %s -m %s -r %s -b %s --save_tensor -w',input_dwi,...
+    output_tensor_name,brain_mask,bvecs_name,bvals_name);
+
+[status,output] = call_fsl(cmd_to_execute);
+
+5) Voxelwise statistics using PALM
+Download PALM from https://s3-us-west-2.amazonaws.com/andersonwinkler/palm/palm-alpha119.tar.gz
+
+Run PALM like:
+palm -i your_4D_skeletonized_file_such_as_FA.nii.gz -m your_mean_FA_skeleton_mask.nii.gz -d design_matrix_mean.mat -t contrast_matrix_mean.con -n 1000 -T -tfce2D -corrmod -corrcon -logp -approx tail -noniiclass -saveparametric -savedof -saveglm -o output_rootname
+
+6) Free-Water correction
+https://dipy.org/documentation/0.16.0./examples_built/reconst_fwdti/
+
+Dont input anything in axial_slice variable if you want to process all the voxels.
+
+7) Diffusion Kurtosis Imaging
+Download the matlab code from https://github.com/jelleveraart/RobustDKIFitting
+
+8) NODDI
+http://mig.cs.ucl.ac.uk/index.php?n=Download.NODDI and follow the instructions here: http://mig.cs.ucl.ac.uk/index.php?n=Tutorial.NODDImatlab
+
+
+
