@@ -1,6 +1,9 @@
 Data for practice can be downloaded here:
 https://www.dropbox.com/scl/fo/5qaawz95c026346xsl1sf/h?rlkey=4teswg8vlodlyx3obkypd8qjl&dl=0
 
+IVIM data is hosted here:
+https://drive.google.com/drive/folders/1BHi77tSIB4BJI-MrrnHiwlEV2jp5UVa3?usp=sharing
+
 1) Denoising
 
 dwi_input_image = cell2mat(fullfile(output_main_folder,subject_folders(i),'DWI.nii.gz'));
